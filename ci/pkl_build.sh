@@ -1,11 +1,11 @@
 #!/bin/bash
-# SPDX-License-Identifier: BSD-3-Clause-Clear
+# SPDX-License-Identifier: BSD-3-Clause
 #
 # Copyright (c) 2025 Qualcomm Innovation Center, Inc. All rights reserved.
 set -ex
 echo "Running build script..."
 # Build/Compile audioreach-utils
-source ${GITHUB_WORKSPACE}/install/environment-setup-armv8-7a-qcom-linux
+source ${GITHUB_WORKSPACE}/install/environment-setup-armv8-6a-qcom-linux
 
 # make sure we are in the right directory
 cd ${GITHUB_WORKSPACE}/audio-route

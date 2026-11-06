@@ -200,9 +200,14 @@ static struct mixer_path *path_get_by_name(struct audio_route *ar,
 {
     unsigned int i;
 
-    for (i = 0; i < ar->num_mixer_paths; i++)
-        if (strcmp(ar->mixer_path[i].name, name) == 0)
-            return &ar->mixer_path[i];
+    for (i = 0; i < ar->num_mixer_paths; i++) {
+        if (ar->mixer_path[i].name != NULL) {
+            if (strcmp(ar->mixer_path[i].name, name) == 0)
+                return &ar->mixer_path[i];
+        } else {
+            ALOGE("mixer_path[%d].name is null", i);
+        }
+    }
 
     return NULL;
 }

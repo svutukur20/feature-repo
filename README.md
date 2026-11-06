@@ -8,4 +8,4 @@ To be available soon.
 
 ## License:
 
-Audioreach-audio-utils source files are licensed under the BSD-3-Clause-Clear. Check out the LICENSE for more details.
+Audioreach-audio-utils source files are licensed under the BSD-3-Clause. Check out the LICENSE for more details.

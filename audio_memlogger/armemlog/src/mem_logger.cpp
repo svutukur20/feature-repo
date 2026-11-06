@@ -416,7 +416,17 @@ int32_t memLoggerInitQ(mem_logger_queue_datatype typeT, const char* cfgFilePath)
     AR_LOG_DEBUG(LOG_TAG, "Attempting queue item memory allocation \n");
     cells = (qSize[typeT] - sizeof(struct mem_logger_queue)) / memLoggerQueueToSize.at(typeT);
     AR_LOG_DEBUG(LOG_TAG, "number of cell is %d", cells);
-    queues[typeT]->items = (void**) malloc(cells * sizeof(void*));
+    /* calloc initializes all slots to NULL; unpopulated slots must not be used
+    * as memcpy destinations in memLoggerEnqueue(). */
+    queues[typeT]->items = (void**) calloc(cells, sizeof(void*));
+    if (queues[typeT]->items == NULL)
+    {
+        AR_LOG_ERR(LOG_TAG, "Failed to allocate the memory for queue item array! \n");
+        free(queues[typeT]);
+        queues[typeT] = NULL;
+        ret = -ENOMEM;
+        goto exit;
+    }
 
     for (int i = 0; i < cells; i++)
     {
@@ -424,24 +434,18 @@ int32_t memLoggerInitQ(mem_logger_queue_datatype typeT, const char* cfgFilePath)
         if (queues[typeT]->items[i] == NULL)
         {
             AR_LOG_ERR(LOG_TAG, "Failed to allocate the memory for queue item! \n");
-            /*clean up mem*/
-            if (i > 0)
+            /* Free all slots, the items array, and the queue; then set queues[typeT] to
+            * NULL so memLoggerEnqueue() is protected by the NULL check. */
+            for (int j = i - 1; j >= 0; j--)
             {
-                for (int j=i-1; j >= 0; j--)
-                {
-                    free(queues[typeT]->items[j]);
-                }
+                free(queues[typeT]->items[j]);
             }
-            ret = -EINVAL;
+            free(queues[typeT]->items);
+            free(queues[typeT]);
+            queues[typeT] = NULL;
+            ret = -ENOMEM;
             goto exit;
         }
-    }
-
-    if (queues[typeT]->items == NULL)
-    {
-        AR_LOG_ERR(LOG_TAG, "Failed to allocate the memory for queue! \n");
-        ret = -EINVAL;
-        goto exit;
     }
 
     queues[typeT]->maxsize = cells;
@@ -663,13 +667,11 @@ int32_t memLoggerDumpQueueToFile(mem_logger_queue_datatype typeT)
         goto exit;
     }
 
-    ar_osal_mutex_lock(lock);
-
     if (queues[typeT] == NULL)
     {
         AR_LOG_ERR(LOG_TAG,"Invalid Type\n");
         ret = -EINVAL;
-        goto unlock;
+        goto exit;
     }
 
     ptr = localtime(&now);
@@ -683,21 +685,21 @@ int32_t memLoggerDumpQueueToFile(mem_logger_queue_datatype typeT)
         {
             AR_LOG_ERR(LOG_TAG, "Unable to format timestamp during queue dump for type %d", typeT);
             ret = -EINVAL;
-            goto unlock;
+            goto exit;
         }
     }
     else
     {
         AR_LOG_ERR(LOG_TAG, "Unable to retrieve timestamp during queue dump for type %d", typeT);
         ret = -EINVAL;
-        goto unlock;
+        goto exit;
     }
 
     ret = memLoggerDumpMaxFileCheck(typeT, now);
     if (ret)
     {
         AR_LOG_ERR(LOG_TAG, "File dump failed during max file check");
-        goto unlock;
+        goto exit;
     }
 
     q = &queues[typeT];
@@ -708,7 +710,7 @@ int32_t memLoggerDumpQueueToFile(mem_logger_queue_datatype typeT)
     if (ret)
     {
         AR_LOG_ERR(LOG_TAG,"failed to open the file %s:error:%d \n", curFilePath.c_str(), ret);
-        goto unlock;
+        goto exit;
     }
 
     isEmpty = memLoggerIsQueueEmpty(typeT);
@@ -721,7 +723,7 @@ int32_t memLoggerDumpQueueToFile(mem_logger_queue_datatype typeT)
         {
             AR_LOG_ERR(LOG_TAG,"Failed to allocate memory for queue type %d: %d\n", typeT, ret);
             ret = -ENOMEM;
-            goto unlock;
+            goto exit;
         }
 
         ret = memLoggerDequeue(typeT, payload);
@@ -729,7 +731,7 @@ int32_t memLoggerDumpQueueToFile(mem_logger_queue_datatype typeT)
         if (ret)
         {
             AR_LOG_ERR(LOG_TAG,"Dequeue failed for queue type %d: %d\n", typeT, ret);
-            goto unlock;
+            goto exit;
         }
 
         bytes_written = 0;
@@ -738,7 +740,7 @@ int32_t memLoggerDumpQueueToFile(mem_logger_queue_datatype typeT)
         if (ret)
         {
             AR_LOG_ERR(LOG_TAG,"Item write failed for queue type %d: %d\n", typeT, ret);
-            goto unlock;
+            goto exit;
         }
 
         AR_LOG_DEBUG(LOG_TAG, "Wrote item of queue type %d", typeT);
@@ -754,8 +756,6 @@ int32_t memLoggerDumpQueueToFile(mem_logger_queue_datatype typeT)
         AR_LOG_ERR(LOG_TAG,"failed to seek file %d \n", ret);
     }
 
-unlock:
-    ar_osal_mutex_unlock(lock);
 exit:
     memLoggerPrintTime(MEM_LOGGER_TIME_END);
     return ret;
@@ -780,13 +780,11 @@ int32_t memLoggerDumpStatbufToFile(mem_logger_statbuf_datatype typeT)
         goto exit;
     }
 
-    ar_osal_mutex_lock(lock);
-
     if (statbufs[typeT].empty())
     {
         AR_LOG_ERR(LOG_TAG,"Invalid Type\n");
         ret = -EINVAL;
-        goto unlock;
+        goto exit;
     }
 
     ptr = localtime(&now);
@@ -800,21 +798,21 @@ int32_t memLoggerDumpStatbufToFile(mem_logger_statbuf_datatype typeT)
         {
             AR_LOG_ERR(LOG_TAG, "Unable to format timestamp for static buffer dump");
             ret = -EINVAL;
-            goto unlock;
+            goto exit;
         }
     }
     else
     {
         AR_LOG_ERR(LOG_TAG, "Unable to retrieve timestamp for static buffer dump");
         ret = -EINVAL;
-        goto unlock;
+        goto exit;
     }
 
     ret = memLoggerDumpMaxFileCheck(QUEUE_MAX + typeT, now);
     if (ret)
     {
         AR_LOG_ERR(LOG_TAG, "File dump failed during max file check");
-        goto unlock;
+        goto exit;
     }
 
     AR_LOG_DEBUG(LOG_TAG, "Attempting to dump type %d to file", typeT);
@@ -823,7 +821,7 @@ int32_t memLoggerDumpStatbufToFile(mem_logger_statbuf_datatype typeT)
     if (ret)
     {
         AR_LOG_ERR(LOG_TAG,"failed to open the file %s:error:%d \n", curFilePath.c_str(), ret);
-        goto unlock;
+        goto exit;
     }
 
     valAddr = &statbufs[typeT][0];
@@ -832,7 +830,7 @@ int32_t memLoggerDumpStatbufToFile(mem_logger_statbuf_datatype typeT)
     if (ret)
     {
         AR_LOG_ERR(LOG_TAG,"Item write failed for static buffer type %d: %d\n", typeT, ret);
-        goto unlock;
+        goto exit;
     }
 
     ret = ar_fclose(handle);
@@ -847,8 +845,6 @@ int32_t memLoggerDumpStatbufToFile(mem_logger_statbuf_datatype typeT)
         statbufs[typeT][i] = 0;
     }
 
-unlock:
-    ar_osal_mutex_unlock(lock);
 exit:
     memLoggerPrintTime(MEM_LOGGER_TIME_END);
     return ret;
@@ -858,6 +854,22 @@ int32_t memLoggerDumpAllToFile()
 {
     memLoggerPrintTime(MEM_LOGGER_TIME_START);
     int32_t ret = 0;
+    bool locked = false;
+
+    /* memLoggerDumpAllToFile() may be called from a crash handler. Use trylock
+     * to avoid blocking on this non-recursive mutex. If the lock is acquired,
+     * keep it across the whole dump and call the dump helpers with the lock
+     * already held to avoid re-locking and TOCTOU races. */
+    if (ar_osal_mutex_try_lock(lock) != 0)
+    {
+        AR_LOG_ERR(LOG_TAG, "memLoggerDumpAllToFile: lock busy (likely "
+                            "called from a crash handler while already "
+                            "held); skipping dump\n");
+        ret = -EBUSY;
+        goto exit;
+    }
+    locked = true;
+
     for (int queueType = 0; queueType != QUEUE_MAX; queueType++)
     {
         mem_logger_queue_datatype typeQ = static_cast<mem_logger_queue_datatype>(queueType);
@@ -886,6 +898,10 @@ int32_t memLoggerDumpAllToFile()
             AR_LOG_ERR(LOG_TAG,"memLoggerDumpAllToFile: failed to dump type %d: %d \n", statbufType, ret);
         }
     }
+
+exit:
+    if (locked)
+        ar_osal_mutex_unlock(lock);
     memLoggerPrintTime(MEM_LOGGER_TIME_END);
     return ret;
 }
